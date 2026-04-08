@@ -14,6 +14,10 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+static int storage_write_csv_row(FILE *fp, const char **values, int count);
+static int storage_load_table_from_fp(FILE *fp, const char *table_name,
+                                      TableData *table, int include_offsets);
+
 static int storage_ensure_data_dir(void) {
     struct stat info;
 
@@ -336,6 +340,73 @@ static int storage_validate_primary_key(FILE *fp, const char *table_name,
     return SUCCESS;
 }
 
+static int storage_compare_with_operator(const char *lhs, const char *op,
+                                         const char *rhs) {
+    int comparison;
+
+    if (lhs == NULL || op == NULL || rhs == NULL) {
+        return FAILURE;
+    }
+
+    comparison = utils_compare_values(lhs, rhs);
+    if (strcmp(op, "=") == 0) {
+        return comparison == 0;
+    }
+    if (strcmp(op, "!=") == 0) {
+        return comparison != 0;
+    }
+    if (strcmp(op, ">") == 0) {
+        return comparison > 0;
+    }
+    if (strcmp(op, "<") == 0) {
+        return comparison < 0;
+    }
+    if (strcmp(op, ">=") == 0) {
+        return comparison >= 0;
+    }
+    if (strcmp(op, "<=") == 0) {
+        return comparison <= 0;
+    }
+
+    fprintf(stderr, "Error: Unsupported WHERE operator '%s'.\n", op);
+    return FAILURE;
+}
+
+static int storage_row_matches_where(char **row,
+                                     const char columns[][MAX_IDENTIFIER_LEN],
+                                     int col_count,
+                                     const WhereClause *where) {
+    int column_index;
+
+    if (row == NULL || columns == NULL || where == NULL) {
+        return FAILURE;
+    }
+
+    column_index = storage_find_column_index(columns, col_count, where->column);
+    if (column_index == FAILURE) {
+        fprintf(stderr, "Error: Column '%s' not found.\n", where->column);
+        return FAILURE;
+    }
+
+    return storage_compare_with_operator(row[column_index], where->op, where->value);
+}
+
+static int storage_write_header(FILE *fp, const char columns[][MAX_IDENTIFIER_LEN],
+                                int col_count) {
+    const char *header_values[MAX_COLUMNS];
+    int i;
+
+    if (fp == NULL || columns == NULL || col_count < 0) {
+        return FAILURE;
+    }
+
+    for (i = 0; i < col_count; i++) {
+        header_values[i] = columns[i];
+    }
+
+    return storage_write_csv_row(fp, header_values, col_count);
+}
+
 static int storage_get_next_auto_id(FILE *fp, const char *table_name,
                                     const char columns[][MAX_IDENTIFIER_LEN],
                                     int col_count, char *buffer,
@@ -511,10 +582,8 @@ static int storage_read_header(FILE *fp, char columns[][MAX_IDENTIFIER_LEN],
     return SUCCESS;
 }
 
-static int storage_load_table_internal(const char *table_name, TableData *table,
-                                       int include_offsets) {
-    FILE *fp;
-    char path[MAX_PATH_LEN];
+static int storage_load_table_from_fp(FILE *fp, const char *table_name,
+                                      TableData *table, int include_offsets) {
     char line[MAX_CSV_LINE_LENGTH];
     char **parsed_fields;
     int parsed_count;
@@ -529,6 +598,115 @@ static int storage_load_table_internal(const char *table_name, TableData *table,
     }
 
     memset(table, 0, sizeof(*table));
+    if (fp == NULL) {
+        return FAILURE;
+    }
+
+    rewind(fp);
+    if (storage_read_header(fp, table->columns, &table->col_count) != SUCCESS) {
+        return FAILURE;
+    }
+
+    row_capacity = INITIAL_ROW_CAPACITY;
+    offsets = NULL;
+    table->rows = NULL;
+    if (row_capacity > 0) {
+        table->rows = (char ***)malloc((size_t)row_capacity * sizeof(char **));
+        if (table->rows == NULL) {
+            fprintf(stderr, "Error: Failed to allocate memory.\n");
+            return FAILURE;
+        }
+    }
+
+    if (include_offsets) {
+        offsets = (long *)malloc((size_t)row_capacity * sizeof(long));
+        if (offsets == NULL) {
+            fprintf(stderr, "Error: Failed to allocate memory.\n");
+            free(table->rows);
+            table->rows = NULL;
+            return FAILURE;
+        }
+    }
+
+    while (1) {
+        current_offset = ftell(fp);
+        if (fgets(line, sizeof(line), fp) == NULL) {
+            break;
+        }
+
+        if (strchr(line, '\n') == NULL && !feof(fp)) {
+            fprintf(stderr, "Error: CSV row is too long.\n");
+            storage_free_table(table);
+            free(offsets);
+            return FAILURE;
+        }
+
+        if (line[0] == '\n' || line[0] == '\r') {
+            continue;
+        }
+
+        if (storage_parse_csv_line(line, &parsed_fields, &parsed_count) != SUCCESS) {
+            storage_free_table(table);
+            free(offsets);
+            return FAILURE;
+        }
+
+        if (parsed_count != table->col_count) {
+            fprintf(stderr, "Error: Corrupted row in table '%s'.\n", table_name);
+            storage_free_field_list(parsed_fields, parsed_count);
+            storage_free_table(table);
+            free(offsets);
+            return FAILURE;
+        }
+
+        if (table->row_count >= row_capacity) {
+            row_capacity *= 2;
+            new_rows = (char ***)realloc(table->rows,
+                                         (size_t)row_capacity * sizeof(char **));
+            if (new_rows == NULL) {
+                fprintf(stderr, "Error: Failed to allocate memory.\n");
+                storage_free_field_list(parsed_fields, parsed_count);
+                storage_free_table(table);
+                free(offsets);
+                return FAILURE;
+            }
+            table->rows = new_rows;
+
+            if (include_offsets) {
+                new_offsets = (long *)realloc(offsets,
+                                              (size_t)row_capacity * sizeof(long));
+                if (new_offsets == NULL) {
+                    fprintf(stderr, "Error: Failed to allocate memory.\n");
+                    storage_free_field_list(parsed_fields, parsed_count);
+                    storage_free_table(table);
+                    free(offsets);
+                    return FAILURE;
+                }
+                offsets = new_offsets;
+            }
+        }
+
+        table->rows[table->row_count] = parsed_fields;
+        if (include_offsets) {
+            offsets[table->row_count] = current_offset;
+        }
+        table->row_count++;
+    }
+
+    table->offsets = offsets;
+    return SUCCESS;
+}
+
+static int storage_load_table_internal(const char *table_name, TableData *table,
+                                       int include_offsets) {
+    FILE *fp;
+    char path[MAX_PATH_LEN];
+    int status;
+
+    if (table_name == NULL || table == NULL) {
+        return FAILURE;
+    }
+
     if (storage_build_path(table_name, path, sizeof(path)) != SUCCESS) {
         fprintf(stderr, "Error: Table path is too long.\n");
         return FAILURE;
@@ -545,115 +723,121 @@ static int storage_load_table_internal(const char *table_name, TableData *table,
         return FAILURE;
     }
 
-    if (storage_read_header(fp, table->columns, &table->col_count) != SUCCESS) {
-        flock(fileno(fp), LOCK_UN);
-        fclose(fp);
+    status = storage_load_table_from_fp(fp, table_name, table, include_offsets);
+    flock(fileno(fp), LOCK_UN);
+    fclose(fp);
+    return status;
+}
+
+int storage_delete(const char *table_name, const DeleteStatement *stmt,
+                   int *deleted_count) {
+    FILE *source_fp;
+    FILE *temp_fp;
+    char path[MAX_PATH_LEN];
+    char temp_path[MAX_PATH_LEN];
+    TableData table;
+    int i;
+    int matches;
+
+    if (table_name == NULL || stmt == NULL || deleted_count == NULL) {
         return FAILURE;
     }
 
-    row_capacity = INITIAL_ROW_CAPACITY;
-    offsets = NULL;
-    table->rows = NULL;
-    if (row_capacity > 0) {
-        table->rows = (char ***)malloc((size_t)row_capacity * sizeof(char **));
-        if (table->rows == NULL) {
-            fprintf(stderr, "Error: Failed to allocate memory.\n");
-            flock(fileno(fp), LOCK_UN);
-            fclose(fp);
-            return FAILURE;
-        }
+    *deleted_count = 0;
+    if (storage_build_path(table_name, path, sizeof(path)) != SUCCESS) {
+        fprintf(stderr, "Error: Table path is too long.\n");
+        return FAILURE;
     }
 
-    if (include_offsets) {
-        offsets = (long *)malloc((size_t)row_capacity * sizeof(long));
-        if (offsets == NULL) {
-            fprintf(stderr, "Error: Failed to allocate memory.\n");
-            free(table->rows);
-            table->rows = NULL;
-            flock(fileno(fp), LOCK_UN);
-            fclose(fp);
-            return FAILURE;
-        }
+    if (snprintf(temp_path, sizeof(temp_path), "data/%s.tmp", table_name) < 0) {
+        fprintf(stderr, "Error: Temporary table path is too long.\n");
+        return FAILURE;
     }
 
-    while (1) {
-        current_offset = ftell(fp);
-        if (fgets(line, sizeof(line), fp) == NULL) {
-            break;
+    source_fp = fopen(path, "r");
+    if (source_fp == NULL) {
+        fprintf(stderr, "Error: Table '%s' not found.\n", table_name);
+        return FAILURE;
+    }
+
+    if (storage_lock_file(source_fp, LOCK_EX) != SUCCESS) {
+        fclose(source_fp);
+        return FAILURE;
+    }
+
+    if (storage_load_table_from_fp(source_fp, table_name, &table, 0) != SUCCESS) {
+        flock(fileno(source_fp), LOCK_UN);
+        fclose(source_fp);
+        return FAILURE;
+    }
+
+    temp_fp = fopen(temp_path, "w");
+    if (temp_fp == NULL) {
+        fprintf(stderr, "Error: Failed to create temporary table file.\n");
+        storage_free_table(&table);
+        flock(fileno(source_fp), LOCK_UN);
+        fclose(source_fp);
+        return FAILURE;
+    }
+
+    if (storage_write_header(temp_fp, table.columns, table.col_count) != SUCCESS) {
+        fprintf(stderr, "Error: Failed to write table '%s'.\n", table_name);
+        fclose(temp_fp);
+        remove(temp_path);
+        storage_free_table(&table);
+        flock(fileno(source_fp), LOCK_UN);
+        fclose(source_fp);
+        return FAILURE;
+    }
+
+    for (i = 0; i < table.row_count; i++) {
+        if (stmt->has_where) {
+            matches = storage_row_matches_where(table.rows[i], table.columns,
+                                                table.col_count, &stmt->where);
+            if (matches == FAILURE) {
+                fclose(temp_fp);
+                remove(temp_path);
+                storage_free_table(&table);
+                flock(fileno(source_fp), LOCK_UN);
+                fclose(source_fp);
+                return FAILURE;
+            }
+        } else {
+            matches = 1;
         }
 
-        if (strchr(line, '\n') == NULL && !feof(fp)) {
-            fprintf(stderr, "Error: CSV row is too long.\n");
-            storage_free_table(table);
-            free(offsets);
-            flock(fileno(fp), LOCK_UN);
-            fclose(fp);
-            return FAILURE;
-        }
-
-        if (line[0] == '\n' || line[0] == '\r') {
+        if (matches) {
+            (*deleted_count)++;
             continue;
         }
 
-        if (storage_parse_csv_line(line, &parsed_fields, &parsed_count) != SUCCESS) {
-            storage_free_table(table);
-            free(offsets);
-            flock(fileno(fp), LOCK_UN);
-            fclose(fp);
+        if (storage_write_csv_row(temp_fp, (const char **)table.rows[i],
+                                  table.col_count) != SUCCESS) {
+            fprintf(stderr, "Error: Failed to write table '%s'.\n", table_name);
+            fclose(temp_fp);
+            remove(temp_path);
+            storage_free_table(&table);
+            flock(fileno(source_fp), LOCK_UN);
+            fclose(source_fp);
             return FAILURE;
         }
-
-        if (parsed_count != table->col_count) {
-            fprintf(stderr, "Error: Corrupted row in table '%s'.\n", table_name);
-            storage_free_field_list(parsed_fields, parsed_count);
-            storage_free_table(table);
-            free(offsets);
-            flock(fileno(fp), LOCK_UN);
-            fclose(fp);
-            return FAILURE;
-        }
-
-        if (table->row_count >= row_capacity) {
-            row_capacity *= 2;
-            new_rows = (char ***)realloc(table->rows,
-                                         (size_t)row_capacity * sizeof(char **));
-            if (new_rows == NULL) {
-                fprintf(stderr, "Error: Failed to allocate memory.\n");
-                storage_free_field_list(parsed_fields, parsed_count);
-                storage_free_table(table);
-                free(offsets);
-                flock(fileno(fp), LOCK_UN);
-                fclose(fp);
-                return FAILURE;
-            }
-            table->rows = new_rows;
-
-            if (include_offsets) {
-                new_offsets = (long *)realloc(offsets,
-                                              (size_t)row_capacity * sizeof(long));
-                if (new_offsets == NULL) {
-                    fprintf(stderr, "Error: Failed to allocate memory.\n");
-                    storage_free_field_list(parsed_fields, parsed_count);
-                    storage_free_table(table);
-                    free(offsets);
-                    flock(fileno(fp), LOCK_UN);
-                    fclose(fp);
-                    return FAILURE;
-                }
-                offsets = new_offsets;
-            }
-        }
-
-        table->rows[table->row_count] = parsed_fields;
-        if (include_offsets) {
-            offsets[table->row_count] = current_offset;
-        }
-        table->row_count++;
     }
 
-    table->offsets = offsets;
-    flock(fileno(fp), LOCK_UN);
-    fclose(fp);
+    fflush(temp_fp);
+    fclose(temp_fp);
+
+    if (rename(temp_path, path) != 0) {
+        fprintf(stderr, "Error: Failed to replace table '%s'.\n", table_name);
+        remove(temp_path);
+        storage_free_table(&table);
+        flock(fileno(source_fp), LOCK_UN);
+        fclose(source_fp);
+        return FAILURE;
+    }
+
+    storage_free_table(&table);
+    flock(fileno(source_fp), LOCK_UN);
+    fclose(source_fp);
     return SUCCESS;
 }
 

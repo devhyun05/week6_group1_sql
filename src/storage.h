@@ -18,6 +18,14 @@ typedef struct {
 int storage_insert(const char *table_name, const InsertStatement *stmt);
 
 /*
+ * Delete rows from the table CSV file.
+ * When WHERE is omitted, all data rows are removed and the header is kept.
+ * Returns SUCCESS on success, FAILURE on error.
+ */
+int storage_delete(const char *table_name, const DeleteStatement *stmt,
+                   int *deleted_count);
+
+/*
  * Read all table rows into a newly allocated 3D array.
  * Caller owns the returned memory and must free it with storage_free_rows().
  */

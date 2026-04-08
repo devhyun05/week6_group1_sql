@@ -101,7 +101,7 @@ int utils_equals_ignore_case(const char *lhs, const char *rhs) {
 
 int utils_is_sql_keyword(const char *text) {
     static const char *keywords[] = {
-        "INSERT", "SELECT", "INTO", "FROM", "WHERE", "VALUES"
+        "INSERT", "SELECT", "DELETE", "INTO", "FROM", "WHERE", "VALUES"
     };
     size_t i;
 

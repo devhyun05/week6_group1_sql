@@ -65,6 +65,31 @@ int main(void) {
     }
     free(tokens);
 
+    tokens = soft_parse(
+        "DELETE FROM users WHERE name = 'Alice';",
+        &token_count);
+    if (tokens == NULL) {
+        return EXIT_FAILURE;
+    }
+
+    if (assert_true(hard_parse(tokens, token_count, &statement) == SUCCESS,
+                    "hard_parse should parse DELETE") != SUCCESS ||
+        assert_true(statement.type == SQL_DELETE, "statement type should be DELETE") != SUCCESS ||
+        assert_true(strcmp(statement.delete_stmt.table_name, "users") == 0,
+                    "DELETE table name should be users") != SUCCESS ||
+        assert_true(statement.delete_stmt.has_where == 1,
+                    "DELETE should parse WHERE clause") != SUCCESS ||
+        assert_true(strcmp(statement.delete_stmt.where.column, "name") == 0,
+                    "DELETE WHERE column should be name") != SUCCESS ||
+        assert_true(strcmp(statement.delete_stmt.where.op, "=") == 0,
+                    "DELETE WHERE operator should be =") != SUCCESS ||
+        assert_true(strcmp(statement.delete_stmt.where.value, "Alice") == 0,
+                    "DELETE WHERE value should be Alice") != SUCCESS) {
+        free(tokens);
+        return EXIT_FAILURE;
+    }
+    free(tokens);
+
     puts("[PASS] hard parser");
     return EXIT_SUCCESS;
 }

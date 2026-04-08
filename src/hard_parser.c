@@ -222,12 +222,10 @@ static int hard_parser_parse_select_columns(const Token *tokens, int token_count
 }
 
 static int hard_parser_parse_where(const Token *tokens, int token_count, int *index,
-                                   SelectStatement *stmt) {
-    stmt->has_where = 1;
-
+                                   WhereClause *where) {
     if (hard_parser_expect_identifier(tokens, token_count, index,
-                                      stmt->where.column,
-                                      sizeof(stmt->where.column)) != SUCCESS) {
+                                      where->column,
+                                      sizeof(where->column)) != SUCCESS) {
         return FAILURE;
     }
 
@@ -236,7 +234,7 @@ static int hard_parser_parse_where(const Token *tokens, int token_count, int *in
         return FAILURE;
     }
 
-    if (utils_safe_strcpy(stmt->where.op, sizeof(stmt->where.op),
+    if (utils_safe_strcpy(where->op, sizeof(where->op),
                           tokens[*index].value) != SUCCESS) {
         hard_parser_print_error("WHERE operator is invalid.");
         return FAILURE;
@@ -244,8 +242,8 @@ static int hard_parser_parse_where(const Token *tokens, int token_count, int *in
     (*index)++;
 
     if (hard_parser_expect_literal(tokens, token_count, index,
-                                   stmt->where.value,
-                                   sizeof(stmt->where.value)) != SUCCESS) {
+                                   where->value,
+                                   sizeof(where->value)) != SUCCESS) {
         return FAILURE;
     }
 
@@ -280,8 +278,41 @@ static int hard_parser_parse_select(const Token *tokens, int token_count,
     }
 
     if (hard_parser_is_token(tokens, token_count, index, TOKEN_KEYWORD, "WHERE")) {
+        out->select.has_where = 1;
         index++;
-        if (hard_parser_parse_where(tokens, token_count, &index, &out->select) != SUCCESS) {
+        if (hard_parser_parse_where(tokens, token_count, &index,
+                                    &out->select.where) != SUCCESS) {
+            return FAILURE;
+        }
+    }
+
+    return hard_parser_consume_optional_semicolon(tokens, token_count, &index);
+}
+
+static int hard_parser_parse_delete(const Token *tokens, int token_count,
+                                    SqlStatement *out) {
+    int index;
+
+    index = 0;
+    memset(out, 0, sizeof(*out));
+    out->type = SQL_DELETE;
+
+    if (hard_parser_expect_keyword(tokens, token_count, &index, "DELETE") != SUCCESS ||
+        hard_parser_expect_keyword(tokens, token_count, &index, "FROM") != SUCCESS) {
+        return FAILURE;
+    }
+
+    if (hard_parser_expect_identifier(tokens, token_count, &index,
+                                      out->delete_stmt.table_name,
+                                      sizeof(out->delete_stmt.table_name)) != SUCCESS) {
+        return FAILURE;
+    }
+
+    if (hard_parser_is_token(tokens, token_count, index, TOKEN_KEYWORD, "WHERE")) {
+        out->delete_stmt.has_where = 1;
+        index++;
+        if (hard_parser_parse_where(tokens, token_count, &index,
+                                    &out->delete_stmt.where) != SUCCESS) {
             return FAILURE;
         }
     }
@@ -301,6 +332,10 @@ int hard_parse(const Token *tokens, int token_count, SqlStatement *out) {
 
     if (hard_parser_is_token(tokens, token_count, 0, TOKEN_KEYWORD, "SELECT")) {
         return hard_parser_parse_select(tokens, token_count, out);
+    }
+
+    if (hard_parser_is_token(tokens, token_count, 0, TOKEN_KEYWORD, "DELETE")) {
+        return hard_parser_parse_delete(tokens, token_count, out);
     }
 
     hard_parser_print_error("Unsupported SQL statement.");

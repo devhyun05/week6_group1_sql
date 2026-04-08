@@ -330,6 +330,19 @@ static int executor_execute_select(const SelectStatement *stmt) {
     return SUCCESS;
 }
 
+static int executor_execute_delete(const DeleteStatement *stmt) {
+    int deleted_count;
+
+    deleted_count = 0;
+    if (storage_delete(stmt->table_name, stmt, &deleted_count) != SUCCESS) {
+        return FAILURE;
+    }
+
+    printf("%d row%s deleted from %s.\n", deleted_count,
+           deleted_count == 1 ? "" : "s", stmt->table_name);
+    return SUCCESS;
+}
+
 int executor_execute(const SqlStatement *statement) {
     if (statement == NULL) {
         return FAILURE;
@@ -340,6 +353,8 @@ int executor_execute(const SqlStatement *statement) {
             return executor_execute_insert(&statement->insert);
         case SQL_SELECT:
             return executor_execute_select(&statement->select);
+        case SQL_DELETE:
+            return executor_execute_delete(&statement->delete_stmt);
         default:
             fprintf(stderr, "Error: Unsupported SQL statement type.\n");
             return FAILURE;

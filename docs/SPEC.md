@@ -1,6 +1,6 @@
 # SQL Processor Specification
 
-이 프로젝트는 SQL 입력을 파싱하고, 파일 기반 CSV 저장소에 대해 `INSERT` / `SELECT`를 수행하는 경량 SQL 처리기입니다.
+이 프로젝트는 SQL 입력을 파싱하고, 파일 기반 CSV 저장소에 대해 `INSERT` / `SELECT` / `DELETE`를 수행하는 경량 SQL 처리기입니다.
 
 ## 핵심 특징
 
@@ -19,6 +19,7 @@ INSERT INTO users (name, age) VALUES ('Alice', 30);
 SELECT * FROM users;
 SELECT name, age FROM users WHERE age > 27;
 SELECT * FROM users WHERE name = 'Bob';
+DELETE FROM users WHERE name = 'Bob';
 ```
 
 상세 구현 내용은 소스 코드의 각 모듈 주석과 테스트 케이스를 기준으로 확인할 수 있습니다.

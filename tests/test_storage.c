@@ -34,11 +34,26 @@ static void prepare_insert(InsertStatement *stmt, const char *table_name,
     }
 }
 
+static void prepare_delete(DeleteStatement *stmt, const char *table_name,
+                           int has_where, const char *column, const char *op,
+                           const char *value) {
+    memset(stmt, 0, sizeof(*stmt));
+    snprintf(stmt->table_name, sizeof(stmt->table_name), "%s", table_name);
+    stmt->has_where = has_where;
+    if (has_where) {
+        snprintf(stmt->where.column, sizeof(stmt->where.column), "%s", column);
+        snprintf(stmt->where.op, sizeof(stmt->where.op), "%s", op);
+        snprintf(stmt->where.value, sizeof(stmt->where.value), "%s", value);
+    }
+}
+
 int main(void) {
     InsertStatement stmt;
+    DeleteStatement delete_stmt;
     char columns[MAX_COLUMNS][MAX_IDENTIFIER_LEN];
     int col_count;
     int row_count;
+    int deleted_count;
     char ***rows;
     TableData table;
     char **row;
@@ -102,6 +117,39 @@ int main(void) {
 
     storage_free_row(row, table.col_count);
     storage_free_table(&table);
+
+    prepare_delete(&delete_stmt, "storage_users", 1, "name", "=", "Alice");
+    if (assert_true(storage_delete("storage_users", &delete_stmt, &deleted_count) == SUCCESS,
+                    "storage_delete should delete matching rows") != SUCCESS ||
+        assert_true(deleted_count == 1, "storage_delete should report one deleted row") != SUCCESS) {
+        return EXIT_FAILURE;
+    }
+
+    rows = storage_select("storage_users", &row_count, &col_count);
+    if (assert_true(rows != NULL, "storage_select should still work after delete") != SUCCESS ||
+        assert_true(row_count == 1, "one row should remain after DELETE WHERE") != SUCCESS ||
+        assert_true(strcmp(rows[0][1], "Lee, Jr.") == 0,
+                    "remaining row should be Lee, Jr.") != SUCCESS) {
+        storage_free_rows(rows, row_count, col_count);
+        return EXIT_FAILURE;
+    }
+    storage_free_rows(rows, row_count, col_count);
+
+    prepare_delete(&delete_stmt, "storage_users", 0, "", "", "");
+    if (assert_true(storage_delete("storage_users", &delete_stmt, &deleted_count) == SUCCESS,
+                    "storage_delete should support full table delete") != SUCCESS ||
+        assert_true(deleted_count == 1, "full delete should remove remaining row") != SUCCESS) {
+        return EXIT_FAILURE;
+    }
+
+    rows = storage_select("storage_users", &row_count, &col_count);
+    if (assert_true(rows != NULL, "storage_select should read empty table") != SUCCESS ||
+        assert_true(row_count == 0, "no rows should remain after full delete") != SUCCESS) {
+        storage_free_rows(rows, row_count, col_count);
+        return EXIT_FAILURE;
+    }
+    storage_free_rows(rows, row_count, col_count);
+
     puts("[PASS] storage");
     return EXIT_SUCCESS;
 }

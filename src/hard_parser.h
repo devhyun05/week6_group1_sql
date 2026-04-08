@@ -5,7 +5,8 @@
 
 typedef enum {
     SQL_INSERT,
-    SQL_SELECT
+    SQL_SELECT,
+    SQL_DELETE
 } SqlType;
 
 typedef struct {
@@ -30,10 +31,17 @@ typedef struct {
 } SelectStatement;
 
 typedef struct {
+    char table_name[MAX_IDENTIFIER_LEN];
+    int has_where;
+    WhereClause where;
+} DeleteStatement;
+
+typedef struct {
     SqlType type;
     union {
         InsertStatement insert;
         SelectStatement select;
+        DeleteStatement delete_stmt;
     };
 } SqlStatement;
 

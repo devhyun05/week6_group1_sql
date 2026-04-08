@@ -48,6 +48,20 @@ int main(void) {
     }
     free(tokens);
 
+    tokens = soft_parse("DELETE FROM users WHERE name = 'Alice';", &token_count);
+    if (assert_true(tokens != NULL, "soft_parse should support DELETE") != SUCCESS ||
+        assert_true(token_count == 8, "DELETE token count should match") != SUCCESS ||
+        assert_true(tokens[0].type == TOKEN_KEYWORD &&
+                        strcmp(tokens[0].value, "DELETE") == 0,
+                    "DELETE should be normalized to keyword") != SUCCESS ||
+        assert_true(tokens[6].type == TOKEN_STR_LITERAL &&
+                        strcmp(tokens[6].value, "Alice") == 0,
+                    "DELETE should parse string literal in WHERE") != SUCCESS) {
+        free(tokens);
+        return EXIT_FAILURE;
+    }
+    free(tokens);
+
     puts("[PASS] soft parser");
     return EXIT_SUCCESS;
 }
