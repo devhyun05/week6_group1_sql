@@ -31,3 +31,31 @@ flowchart TD
     F --> R["storage_delete() 호출"]
     R --> S["N rows deleted 출력"]
 ```
+
+## 전체 토크나이저 흐름 (tokenizer_tokenize 함수)
+```mermaid
+flowchart TD
+    A["① SQL 입력\n예: SELECT * FROM users;"]
+    B["② 복사 & 정규화\nstrdup → trim → 빈 문자열 체크"]
+    C{"③ 캐시 조회\ntokenizer_lookup_cache()"}
+    D["캐시 히트\n복제본 즉시 반환"]
+    E["④ 실제 파싱\ntokenizer_tokenize_sql()"]
+    F["⑤ 캐시 저장\ntokenizer_store_cache()"]
+    G{"64개 초과?"}
+    H["오래된 항목 evict\nevict_oldest_cache_entry()"]
+    I["⑥ 토큰 배열 반환\n호출자가 free() 책임"]
+
+    A --> B
+    B --> C
+    C -- "히트" --> D
+    C -- "미스" --> E
+    D --> I
+    E --> F
+    F --> G
+    G -- "예" --> H
+    G -- "아니오" --> I
+    H --> I
+```
+
+## 토큰 타입 분류 (tokenizer_tokenize_sql 내부 분기)
+![tokenizer](https://github.com/user-attachments/assets/d6e03310-df0f-4e4f-8659-73f852cb8d36)
