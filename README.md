@@ -1,8 +1,33 @@
 ## 프로젝트 개요
-이 프로젝트는 C 언어로 구현한 간단한 SQL 처리기(SQL Processor)입니다.
-사용자로부터 SQL 쿼리를 입력받아 파싱하고, 이를 실행하여 CSV 파일 기반 저장소에 반영합니다.
-
-
+> 이 프로젝트는 C 언어로 구현한 간단한 SQL 처리기(SQL Processor)입니다. </br>
+> 사용자로부터 SQL 쿼리를 입력받아 파싱하고, 이를 실행하여 CSV 파일 기반 저장소에 반영합니다.
+---
+## 무엇을 만들었나
+이번 과제의 목표는 SQL 문자열을 받아 실제로 실행하는 엔진을 C로 직접 구현하는 것이었습니다.
+- `SELECT`, `INSERT`, `DELETE` 세 가지 SQL 문을 지원합니다.
+- 파일 모드(.sql 파일 실행)와 REPL 모드(대화형 셸) 두 가지 방식으로 동작합니다.
+- 데이터는 CSV 파일에 저장되고, WHERE 조건을 포함한 조회와 삭제도 지원합니다.
+- 파싱 비용을 줄이기 위해 tokenizer 내부에 LRU 방식의 캐시를 사용합니다.
+- 동일한 SQL 문이 반복 입력되면 캐시에서 토큰 배열을 즉시 반환합니다.
+---
+## 모듈별 역할
+| 모듈 | 역할 | 핵심 함수 |
+|------|------|-----------|
+| `src/tokenizer.c` | SQL 문자열을 `Token[]` 배열로 분해 | `tokenizer_tokenize()` |
+| `src/parser.c` | 토큰 배열을 `SqlStatement` 구조체로 변환 | `parser_parse()` |
+| `src/executor.c` | 파싱된 문장을 실행하고 결과 출력 | `executor_execute()` |
+| `src/storage.c` | CSV 읽기/쓰기, 스키마 유지, 삭제 재작성 | `storage_insert()`, `storage_load_table()`, `storage_delete()` |
+| `src/index.c` | 조건 조회를 위한 인메모리 인덱스 생성 | `index_build()`, `index_query_equals()`, `index_query_range()` |
+| `src/utils.c` | 문자열/메모리/출력/세미콜론 탐지 유틸리티 | `utils_strdup()`, `utils_trim()`, `utils_compare_values()` |
+---
+## 단계별 시각화
+```mermaid
+flowchart LR
+    A([📥 입력]) --> B([🔤 토크나이징])
+    B --> C([🔍 해석])
+    C --> D([⚙️ 실행])
+    D --> E([💾 저장])
+```
 ## 전체 토크나이저 흐름 (tokenizer_tokenize 함수)
 ```mermaid
 flowchart TD
@@ -27,9 +52,6 @@ flowchart TD
     G -- "아니오" --> I
     H --> I
 ```
-
-## 토큰 타입 분류 (tokenizer_tokenize_sql 내부 분기)
-![tokenizer](https://github.com/user-attachments/assets/d6e03310-df0f-4e4f-8659-73f852cb8d36)
 
 # Parser (구문 분석)
 
@@ -85,7 +107,8 @@ flowchart TD
     F --> R["storage_delete() 호출"]
     R --> S["N rows deleted 출력"]
 ```
-## 테스트는 어떻게 했는지?
+---
+## 테스트
 
 테스트는 네 단계로 나눴다.
 
