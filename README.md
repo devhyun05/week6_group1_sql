@@ -64,6 +64,18 @@ flowchart TD
     F --> R["storage_delete() 호출"]
     R --> S["N rows deleted 출력"]
 ```
+## 테스트는 어떻게 했는지?
+
+테스트는 네 단계로 나눴다.
+
+| 분류 | 목적 |
+| --- | --- |
+| Unit Test | 토크나이저, 파서, 스토리지, 실행기 같은 모듈 단위 검증 |
+| Integration Test | tokenizer -> parser -> executor -> storage가 연결돼서 잘 동작하는지 확인 |
+| Functional Test | INSERT, SELECT, DELETE, WHERE 같은 실제 SQL 기능 검증 |
+| Edge Case Test | 중복 PK, 문자열 내 수미표, 존재하지 않는 테이블, 빈 결과 같은 예외 상황 검증  |
+
+<img width="881" height="370" alt="image" src="https://github.com/user-attachments/assets/fcafb6cd-0f97-450f-932a-7ed9fa6e6912" />
 
 ## 수요 코딩회 작업 비중
 <img width="666" height="448" alt="image" src="https://github.com/user-attachments/assets/802587bc-2688-45fe-a258-80c2f3112552" />
