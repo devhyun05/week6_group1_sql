@@ -13,16 +13,25 @@ static int assert_true(int condition, const char *message) {
 }
 
 static void prepare_insert(InsertStatement *stmt, const char *table_name,
-                           const char *id, const char *name, const char *age) {
+                           int include_id, const char *id, const char *name,
+                           const char *age) {
     memset(stmt, 0, sizeof(*stmt));
     snprintf(stmt->table_name, sizeof(stmt->table_name), "%s", table_name);
-    stmt->column_count = 3;
-    snprintf(stmt->columns[0], sizeof(stmt->columns[0]), "id");
-    snprintf(stmt->columns[1], sizeof(stmt->columns[1]), "name");
-    snprintf(stmt->columns[2], sizeof(stmt->columns[2]), "age");
-    snprintf(stmt->values[0], sizeof(stmt->values[0]), "%s", id);
-    snprintf(stmt->values[1], sizeof(stmt->values[1]), "%s", name);
-    snprintf(stmt->values[2], sizeof(stmt->values[2]), "%s", age);
+    if (include_id) {
+        stmt->column_count = 3;
+        snprintf(stmt->columns[0], sizeof(stmt->columns[0]), "id");
+        snprintf(stmt->columns[1], sizeof(stmt->columns[1]), "name");
+        snprintf(stmt->columns[2], sizeof(stmt->columns[2]), "age");
+        snprintf(stmt->values[0], sizeof(stmt->values[0]), "%s", id);
+        snprintf(stmt->values[1], sizeof(stmt->values[1]), "%s", name);
+        snprintf(stmt->values[2], sizeof(stmt->values[2]), "%s", age);
+    } else {
+        stmt->column_count = 2;
+        snprintf(stmt->columns[0], sizeof(stmt->columns[0]), "name");
+        snprintf(stmt->columns[1], sizeof(stmt->columns[1]), "age");
+        snprintf(stmt->values[0], sizeof(stmt->values[0]), "%s", name);
+        snprintf(stmt->values[1], sizeof(stmt->values[1]), "%s", age);
+    }
 }
 
 int main(void) {
@@ -36,19 +45,19 @@ int main(void) {
 
     remove("data/storage_users.csv");
 
-    prepare_insert(&stmt, "storage_users", "1", "Alice", "30");
+    prepare_insert(&stmt, "storage_users", 0, "1", "Alice", "30");
     if (assert_true(storage_insert("storage_users", &stmt) == SUCCESS,
-                    "storage_insert should create table") != SUCCESS) {
+                    "storage_insert should create table with auto id") != SUCCESS) {
         return EXIT_FAILURE;
     }
 
-    prepare_insert(&stmt, "storage_users", "2", "Lee, Jr.", "28");
+    prepare_insert(&stmt, "storage_users", 0, "2", "Lee, Jr.", "28");
     if (assert_true(storage_insert("storage_users", &stmt) == SUCCESS,
-                    "storage_insert should append row") != SUCCESS) {
+                    "storage_insert should append row with next auto id") != SUCCESS) {
         return EXIT_FAILURE;
     }
 
-    prepare_insert(&stmt, "storage_users", "2", "Duplicate", "40");
+    prepare_insert(&stmt, "storage_users", 1, "2", "Duplicate", "40");
     if (assert_true(storage_insert("storage_users", &stmt) == FAILURE,
                     "storage_insert should reject duplicate id values") != SUCCESS) {
         return EXIT_FAILURE;
@@ -64,6 +73,8 @@ int main(void) {
     rows = storage_select("storage_users", &row_count, &col_count);
     if (assert_true(rows != NULL, "storage_select should read rows") != SUCCESS ||
         assert_true(row_count == 2, "row count should stay 2 after duplicate reject") != SUCCESS ||
+        assert_true(strcmp(rows[0][0], "1") == 0, "first row should receive id 1") != SUCCESS ||
+        assert_true(strcmp(rows[1][0], "2") == 0, "second row should receive id 2") != SUCCESS ||
         assert_true(strcmp(rows[1][1], "Lee, Jr.") == 0,
                     "CSV parser should preserve commas in strings") != SUCCESS) {
         storage_free_rows(rows, row_count, col_count);

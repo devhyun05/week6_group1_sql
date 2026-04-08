@@ -336,6 +336,71 @@ static int storage_validate_primary_key(FILE *fp, const char *table_name,
     return SUCCESS;
 }
 
+static int storage_get_next_auto_id(FILE *fp, const char *table_name,
+                                    const char columns[][MAX_IDENTIFIER_LEN],
+                                    int col_count, char *buffer,
+                                    size_t buffer_size) {
+    int id_index;
+    char line[MAX_CSV_LINE_LENGTH];
+    char **parsed_fields;
+    int parsed_count;
+    long long next_id;
+    long long current_id;
+
+    if (fp == NULL || table_name == NULL || columns == NULL || buffer == NULL ||
+        buffer_size == 0) {
+        return FAILURE;
+    }
+
+    id_index = storage_find_column_index(columns, col_count, "id");
+    if (id_index == FAILURE) {
+        fprintf(stderr, "Error: Auto-increment requires an 'id' column.\n");
+        return FAILURE;
+    }
+
+    next_id = 1;
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        if (strchr(line, '\n') == NULL && !feof(fp)) {
+            fprintf(stderr, "Error: CSV row is too long.\n");
+            return FAILURE;
+        }
+
+        if (line[0] == '\n' || line[0] == '\r') {
+            continue;
+        }
+
+        if (storage_parse_csv_line(line, &parsed_fields, &parsed_count) != SUCCESS) {
+            return FAILURE;
+        }
+
+        if (parsed_count != col_count) {
+            fprintf(stderr, "Error: Corrupted row in table '%s'.\n", table_name);
+            storage_free_field_list(parsed_fields, parsed_count);
+            return FAILURE;
+        }
+
+        if (!utils_is_integer(parsed_fields[id_index])) {
+            fprintf(stderr,
+                    "Error: Auto-increment requires integer values in column 'id'.\n");
+            storage_free_field_list(parsed_fields, parsed_count);
+            return FAILURE;
+        }
+
+        current_id = utils_parse_integer(parsed_fields[id_index]);
+        if (current_id >= next_id) {
+            next_id = current_id + 1;
+        }
+
+        storage_free_field_list(parsed_fields, parsed_count);
+    }
+
+    if (snprintf(buffer, buffer_size, "%lld", next_id) < 0) {
+        return FAILURE;
+    }
+
+    return SUCCESS;
+}
+
 static int storage_write_csv_value(FILE *fp, const char *value) {
     size_t i;
     int needs_quotes;
@@ -596,11 +661,16 @@ int storage_insert(const char *table_name, const InsertStatement *stmt) {
     FILE *fp;
     char path[MAX_PATH_LEN];
     char existing_columns[MAX_COLUMNS][MAX_IDENTIFIER_LEN];
+    char final_columns[MAX_COLUMNS][MAX_IDENTIFIER_LEN];
     int existing_count;
+    int final_count;
     int i;
     int match_index;
+    int existing_id_index;
+    int stmt_id_index;
     const char *ordered_values[MAX_COLUMNS];
     const char *header_values[MAX_COLUMNS];
+    char auto_id_value[MAX_VALUE_LEN];
     long file_end;
 
     if (table_name == NULL || stmt == NULL) {
@@ -635,28 +705,82 @@ int storage_insert(const char *table_name, const InsertStatement *stmt) {
     }
 
     if (existing_count == 0) {
-        for (i = 0; i < stmt->column_count; i++) {
-            header_values[i] = stmt->columns[i];
-            ordered_values[i] = stmt->values[i];
+        stmt_id_index = storage_find_column_index(
+            (const char (*)[MAX_IDENTIFIER_LEN])stmt->columns,
+            stmt->column_count, "id");
+        final_count = stmt->column_count;
+
+        if (stmt_id_index == FAILURE) {
+            if (stmt->column_count + 1 > MAX_COLUMNS) {
+                fprintf(stderr, "Error: Too many columns for auto-increment id.\n");
+                flock(fileno(fp), LOCK_UN);
+                fclose(fp);
+                return FAILURE;
+            }
+
+            if (utils_safe_strcpy(final_columns[0], sizeof(final_columns[0]), "id") != SUCCESS ||
+                utils_safe_strcpy(auto_id_value, sizeof(auto_id_value), "1") != SUCCESS) {
+                fprintf(stderr, "Error: Failed to prepare auto-increment id.\n");
+                flock(fileno(fp), LOCK_UN);
+                fclose(fp);
+                return FAILURE;
+            }
+
+            header_values[0] = final_columns[0];
+            ordered_values[0] = auto_id_value;
+            final_count = stmt->column_count + 1;
+
+            for (i = 0; i < stmt->column_count; i++) {
+                if (utils_safe_strcpy(final_columns[i + 1], sizeof(final_columns[i + 1]),
+                                      stmt->columns[i]) != SUCCESS) {
+                    fprintf(stderr, "Error: Column name is too long.\n");
+                    flock(fileno(fp), LOCK_UN);
+                    fclose(fp);
+                    return FAILURE;
+                }
+                header_values[i + 1] = final_columns[i + 1];
+                ordered_values[i + 1] = stmt->values[i];
+            }
+        } else {
+            for (i = 0; i < stmt->column_count; i++) {
+                if (utils_safe_strcpy(final_columns[i], sizeof(final_columns[i]),
+                                      stmt->columns[i]) != SUCCESS) {
+                    fprintf(stderr, "Error: Column name is too long.\n");
+                    flock(fileno(fp), LOCK_UN);
+                    fclose(fp);
+                    return FAILURE;
+                }
+                header_values[i] = final_columns[i];
+                ordered_values[i] = stmt->values[i];
+            }
         }
 
-        if (storage_validate_primary_key(fp, table_name, stmt->columns,
-                                         stmt->column_count, ordered_values) != SUCCESS) {
+        if (storage_validate_primary_key(fp, table_name, final_columns,
+                                         final_count, ordered_values) != SUCCESS) {
             flock(fileno(fp), LOCK_UN);
             fclose(fp);
             return FAILURE;
         }
 
         rewind(fp);
-        if (storage_write_csv_row(fp, header_values, stmt->column_count) != SUCCESS ||
-            storage_write_csv_row(fp, ordered_values, stmt->column_count) != SUCCESS) {
+        if (storage_write_csv_row(fp, header_values, final_count) != SUCCESS ||
+            storage_write_csv_row(fp, ordered_values, final_count) != SUCCESS) {
             fprintf(stderr, "Error: Failed to write table '%s'.\n", table_name);
             flock(fileno(fp), LOCK_UN);
             fclose(fp);
             return FAILURE;
         }
     } else {
-        if (existing_count != stmt->column_count) {
+        existing_id_index = storage_find_column_index(existing_columns, existing_count, "id");
+        stmt_id_index = storage_find_column_index(
+            (const char (*)[MAX_IDENTIFIER_LEN])stmt->columns,
+            stmt->column_count, "id");
+
+        if ((existing_id_index == FAILURE && existing_count != stmt->column_count) ||
+            (existing_id_index != FAILURE && stmt_id_index != FAILURE &&
+             existing_count != stmt->column_count) ||
+            (existing_id_index != FAILURE && stmt_id_index == FAILURE &&
+             existing_count != stmt->column_count + 1)) {
             fprintf(stderr, "Error: Column count doesn't match table schema.\n");
             flock(fileno(fp), LOCK_UN);
             fclose(fp);
@@ -664,15 +788,13 @@ int storage_insert(const char *table_name, const InsertStatement *stmt) {
         }
 
         for (i = 0; i < existing_count; i++) {
-            int j;
-            match_index = FAILURE;
-            for (j = 0; j < stmt->column_count; j++) {
-                if (utils_equals_ignore_case(existing_columns[i], stmt->columns[j])) {
-                    match_index = j;
-                    break;
-                }
+            if (i == existing_id_index && stmt_id_index == FAILURE) {
+                continue;
             }
 
+            match_index = storage_find_column_index(
+                (const char (*)[MAX_IDENTIFIER_LEN])stmt->columns,
+                stmt->column_count, existing_columns[i]);
             if (match_index == FAILURE) {
                 fprintf(stderr, "Error: Column '%s' doesn't exist in table schema.\n",
                         existing_columns[i]);
@@ -680,15 +802,37 @@ int storage_insert(const char *table_name, const InsertStatement *stmt) {
                 fclose(fp);
                 return FAILURE;
             }
+        }
 
+        if (existing_id_index != FAILURE && stmt_id_index == FAILURE) {
+            if (storage_get_next_auto_id(fp, table_name, existing_columns,
+                                         existing_count, auto_id_value,
+                                         sizeof(auto_id_value)) != SUCCESS) {
+                flock(fileno(fp), LOCK_UN);
+                fclose(fp);
+                return FAILURE;
+            }
+        }
+
+        for (i = 0; i < existing_count; i++) {
+            if (i == existing_id_index && stmt_id_index == FAILURE) {
+                ordered_values[i] = auto_id_value;
+                continue;
+            }
+
+            match_index = storage_find_column_index(
+                (const char (*)[MAX_IDENTIFIER_LEN])stmt->columns,
+                stmt->column_count, existing_columns[i]);
             ordered_values[i] = stmt->values[match_index];
         }
 
-        if (storage_validate_primary_key(fp, table_name, existing_columns,
-                                         existing_count, ordered_values) != SUCCESS) {
-            flock(fileno(fp), LOCK_UN);
-            fclose(fp);
-            return FAILURE;
+        if (!(existing_id_index != FAILURE && stmt_id_index == FAILURE)) {
+            if (storage_validate_primary_key(fp, table_name, existing_columns,
+                                             existing_count, ordered_values) != SUCCESS) {
+                flock(fileno(fp), LOCK_UN);
+                fclose(fp);
+                return FAILURE;
+            }
         }
 
         if (fseek(fp, 0, SEEK_END) != 0) {

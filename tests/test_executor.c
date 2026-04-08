@@ -13,18 +13,16 @@ static int assert_true(int condition, const char *message) {
 }
 
 static void prepare_insert(SqlStatement *statement, const char *table_name,
-                           const char *id, const char *name, const char *age) {
+                           const char *name, const char *age) {
     memset(statement, 0, sizeof(*statement));
     statement->type = SQL_INSERT;
     snprintf(statement->insert.table_name, sizeof(statement->insert.table_name),
              "%s", table_name);
-    statement->insert.column_count = 3;
-    snprintf(statement->insert.columns[0], sizeof(statement->insert.columns[0]), "id");
-    snprintf(statement->insert.columns[1], sizeof(statement->insert.columns[1]), "name");
-    snprintf(statement->insert.columns[2], sizeof(statement->insert.columns[2]), "age");
-    snprintf(statement->insert.values[0], sizeof(statement->insert.values[0]), "%s", id);
-    snprintf(statement->insert.values[1], sizeof(statement->insert.values[1]), "%s", name);
-    snprintf(statement->insert.values[2], sizeof(statement->insert.values[2]), "%s", age);
+    statement->insert.column_count = 2;
+    snprintf(statement->insert.columns[0], sizeof(statement->insert.columns[0]), "name");
+    snprintf(statement->insert.columns[1], sizeof(statement->insert.columns[1]), "age");
+    snprintf(statement->insert.values[0], sizeof(statement->insert.values[0]), "%s", name);
+    snprintf(statement->insert.values[1], sizeof(statement->insert.values[1]), "%s", age);
 }
 
 static void prepare_select(SqlStatement *statement, const char *table_name) {
@@ -45,15 +43,15 @@ int main(void) {
 
     remove("data/executor_users.csv");
 
-    prepare_insert(&statement, "executor_users", "1", "Alice", "30");
+    prepare_insert(&statement, "executor_users", "Alice", "30");
     if (assert_true(executor_execute(&statement) == SUCCESS,
-                    "executor should insert row") != SUCCESS) {
+                    "executor should insert row with auto id") != SUCCESS) {
         return EXIT_FAILURE;
     }
 
-    prepare_insert(&statement, "executor_users", "2", "Bob", "25");
+    prepare_insert(&statement, "executor_users", "Bob", "25");
     if (assert_true(executor_execute(&statement) == SUCCESS,
-                    "executor should insert second row") != SUCCESS) {
+                    "executor should insert second row with auto id") != SUCCESS) {
         return EXIT_FAILURE;
     }
 

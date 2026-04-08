@@ -15,6 +15,14 @@ make
 ./sql_processor tests/test_cases/basic_select.sql
 ```
 
+예시 REPL 입력:
+
+```sql
+INSERT INTO users (name, age) VALUES ('Alice', 30);
+INSERT INTO users (name, age) VALUES ('Bob', 25);
+SELECT * FROM users;
+```
+
 ## Test
 
 ```bash
@@ -25,5 +33,5 @@ make tests
 
 ```bash
 docker build -t sql-processor .
-docker run -it sql-processor
+docker run -it --rm sql-processor bash -lc "make && ./sql_processor"
 ```

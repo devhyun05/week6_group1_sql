@@ -19,7 +19,7 @@ int main(void) {
     SqlStatement statement;
 
     tokens = soft_parse(
-        "INSERT INTO users (id, name, age) VALUES (1, 'Alice', 30);",
+        "INSERT INTO users (name, age) VALUES ('Alice', 30);",
         &token_count);
     if (tokens == NULL) {
         return EXIT_FAILURE;
@@ -30,9 +30,11 @@ int main(void) {
         assert_true(statement.type == SQL_INSERT, "statement type should be INSERT") != SUCCESS ||
         assert_true(strcmp(statement.insert.table_name, "users") == 0,
                     "table name should be users") != SUCCESS ||
-        assert_true(statement.insert.column_count == 3,
-                    "INSERT column count should be 3") != SUCCESS ||
-        assert_true(strcmp(statement.insert.values[1], "Alice") == 0,
+        assert_true(statement.insert.column_count == 2,
+                    "INSERT column count should be 2 when id is omitted") != SUCCESS ||
+        assert_true(strcmp(statement.insert.columns[0], "name") == 0,
+                    "first INSERT column should be name") != SUCCESS ||
+        assert_true(strcmp(statement.insert.values[0], "Alice") == 0,
                     "INSERT value should keep string literal") != SUCCESS) {
         free(tokens);
         return EXIT_FAILURE;
