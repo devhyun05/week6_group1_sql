@@ -1,4 +1,7 @@
-# week6_group1_sql
+## 실행 엔진
+
+아래 다이어그램은 `executor.c`가 파싱된 SQL 문을 받아
+`INSERT`, `SELECT`, `DELETE`를 어떻게 실행하는지 보여준다.
 
 ```mermaid
 flowchart TD
