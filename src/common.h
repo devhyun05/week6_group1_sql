@@ -1,0 +1,15 @@
+#ifndef COMMON_H
+#define COMMON_H
+
+#define SUCCESS 0
+#define FAILURE -1
+
+#define MAX_TOKEN_VALUE_LEN 256
+#define MAX_IDENTIFIER_LEN 64
+#define MAX_COLUMNS 32
+#define MAX_SQL_LENGTH 8192
+#define MAX_LINE_LENGTH 8192
+#define MAX_PATH_LENGTH 256
+#define INITIAL_DYNAMIC_CAPACITY 8
+
+#endif

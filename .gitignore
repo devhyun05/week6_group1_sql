@@ -1,0 +1,5 @@
+build/
+sql_processor
+data/*.csv
+*.dSYM/
+.DS_Store
