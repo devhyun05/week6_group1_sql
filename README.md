@@ -39,7 +39,7 @@ flowchart TD
     F["⑤ 캐시 저장\ntokenizer_store_cache()"]
     G{"64개 초과?"}
     H["오래된 항목 evict\nevict_oldest_cache_entry()"]
-    I["⑥ 토큰 배열 반환\n호출자가 free() 책임"]
+    I["⑥ 토큰 배열 반환"]
 
     A --> B
     B --> C
