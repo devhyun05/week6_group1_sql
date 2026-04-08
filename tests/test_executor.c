@@ -61,6 +61,7 @@ int main(void) {
     int col_count;
 
     remove("data/executor_users.csv");
+    executor_reset_runtime_state();
 
     prepare_insert(&statement, "executor_users", "Alice", "30");
     if (assert_true(executor_execute(&statement) == SUCCESS,
@@ -83,6 +84,18 @@ int main(void) {
     prepare_select(&statement, "executor_users");
     if (assert_true(executor_execute(&statement) == SUCCESS,
                     "executor should execute indexed SELECT") != SUCCESS) {
+        return EXIT_FAILURE;
+    }
+
+    if (assert_true(executor_get_library_cache_entry_count() >= 1,
+                    "executor should store at least one cached execution plan") != SUCCESS) {
+        return EXIT_FAILURE;
+    }
+
+    if (assert_true(executor_execute(&statement) == SUCCESS,
+                    "executor should reuse cached plan for repeated SELECT") != SUCCESS ||
+        assert_true(executor_get_library_cache_hit_count() >= 1,
+                    "repeated SELECT should produce a library cache hit") != SUCCESS) {
         return EXIT_FAILURE;
     }
 
