@@ -61,6 +61,7 @@ int main(void) {
     int col_count;
 
     remove("data/executor_users.csv");
+    executor_reset_runtime_state();
 
     prepare_insert(&statement, "executor_users", "Alice", "30");
     if (assert_true(executor_execute(&statement) == SUCCESS,
@@ -86,8 +87,19 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
+    if (assert_true(executor_get_table_cache_hit_count() == 0,
+                    "first SELECT should load table without cache hit") != SUCCESS ||
+        assert_true(executor_get_index_cache_hit_count() == 0,
+                    "first SELECT should build index without cache hit") != SUCCESS) {
+        return EXIT_FAILURE;
+    }
+
     if (assert_true(executor_execute(&statement) == SUCCESS,
-                    "executor should execute repeated SELECT consistently") != SUCCESS) {
+                    "executor should execute repeated SELECT consistently") != SUCCESS ||
+        assert_true(executor_get_table_cache_hit_count() >= 1,
+                    "repeated SELECT should reuse cached table") != SUCCESS ||
+        assert_true(executor_get_index_cache_hit_count() >= 1,
+                    "repeated SELECT should reuse cached index") != SUCCESS) {
         return EXIT_FAILURE;
     }
 
@@ -101,6 +113,7 @@ int main(void) {
     }
     storage_free_rows(rows, row_count, col_count);
 
+    executor_reset_runtime_state();
     puts("[PASS] executor");
     return EXIT_SUCCESS;
 }

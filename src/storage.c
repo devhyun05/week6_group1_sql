@@ -17,6 +17,45 @@
 static int storage_write_csv_row(FILE *fp, const char **values, int count);
 static int storage_load_table_from_fp(FILE *fp, const char *table_name,
                                       TableData *table, int include_offsets);
+static int storage_append_field(char ***fields, int *count, int *capacity,
+                                const char *value);
+
+/*
+ * 문자열 목록 안에 같은 값이 이미 있으면 1, 없으면 0을 반환한다.
+ */
+static int storage_string_list_contains(char **values, int count,
+                                        const char *target) {
+    int i;
+
+    if (target == NULL) {
+        return 0;
+    }
+
+    for (i = 0; i < count; i++) {
+        if (values[i] != NULL && strcmp(values[i], target) == 0) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+/*
+ * 동적 문자열 목록에 중복 없이 값을 하나 추가한다.
+ * 새 값이 추가되면 SUCCESS를 반환하며 메모리 소유권은 목록으로 넘어간다.
+ */
+static int storage_append_unique_string(char ***values, int *count, int *capacity,
+                                        const char *value) {
+    if (values == NULL || count == NULL || capacity == NULL || value == NULL) {
+        return FAILURE;
+    }
+
+    if (storage_string_list_contains(*values, *count, value)) {
+        return SUCCESS;
+    }
+
+    return storage_append_field(values, count, capacity, value);
+}
 
 /*
  * 테이블 파일을 만들기 전에 data 디렉터리가 존재하는지 확인한다.
@@ -804,6 +843,12 @@ int storage_delete(const char *table_name, const DeleteStatement *stmt,
     TableData table;
     int i;
     int matches;
+    int slot_key_index;
+    int delete_by_slot_group;
+    char **matched_slot_keys;
+    int matched_slot_key_count;
+    int matched_slot_key_capacity;
+    const char *slot_key_value;
 
     if (table_name == NULL || stmt == NULL || deleted_count == NULL) {
         return FAILURE;
@@ -856,13 +901,62 @@ int storage_delete(const char *table_name, const DeleteStatement *stmt,
         return FAILURE;
     }
 
-    for (i = 0; i < table.row_count; i++) {
-        if (stmt->has_where) {
+    slot_key_index = storage_find_column_index(table.columns, table.col_count, "slot_key");
+    delete_by_slot_group = 0;
+    if (stmt->has_where && strcmp(table_name, "jungle_menu") == 0 &&
+        slot_key_index != FAILURE) {
+        delete_by_slot_group = 1;
+    }
+
+    matched_slot_keys = NULL;
+    matched_slot_key_count = 0;
+    matched_slot_key_capacity = 0;
+    if (delete_by_slot_group) {
+        for (i = 0; i < table.row_count; i++) {
             matches = storage_row_matches_where(table.rows[i], table.columns,
                                                 table.col_count, &stmt->where);
             if (matches == FAILURE) {
                 fclose(temp_fp);
                 remove(temp_path);
+                storage_free_field_list(matched_slot_keys, matched_slot_key_count);
+                storage_free_table(&table);
+                flock(fileno(source_fp), LOCK_UN);
+                fclose(source_fp);
+                return FAILURE;
+            }
+
+            if (!matches) {
+                continue;
+            }
+
+            if (storage_append_unique_string(&matched_slot_keys,
+                                             &matched_slot_key_count,
+                                             &matched_slot_key_capacity,
+                                             table.rows[i][slot_key_index]) != SUCCESS) {
+                fclose(temp_fp);
+                remove(temp_path);
+                storage_free_field_list(matched_slot_keys, matched_slot_key_count);
+                storage_free_table(&table);
+                flock(fileno(source_fp), LOCK_UN);
+                fclose(source_fp);
+                return FAILURE;
+            }
+        }
+    }
+
+    for (i = 0; i < table.row_count; i++) {
+        if (delete_by_slot_group) {
+            slot_key_value = table.rows[i][slot_key_index];
+            matches = storage_string_list_contains(matched_slot_keys,
+                                                   matched_slot_key_count,
+                                                   slot_key_value);
+        } else if (stmt->has_where) {
+            matches = storage_row_matches_where(table.rows[i], table.columns,
+                                                table.col_count, &stmt->where);
+            if (matches == FAILURE) {
+                fclose(temp_fp);
+                remove(temp_path);
+                storage_free_field_list(matched_slot_keys, matched_slot_key_count);
                 storage_free_table(&table);
                 flock(fileno(source_fp), LOCK_UN);
                 fclose(source_fp);
@@ -882,6 +976,7 @@ int storage_delete(const char *table_name, const DeleteStatement *stmt,
             fprintf(stderr, "Error: Failed to write table '%s'.\n", table_name);
             fclose(temp_fp);
             remove(temp_path);
+            storage_free_field_list(matched_slot_keys, matched_slot_key_count);
             storage_free_table(&table);
             flock(fileno(source_fp), LOCK_UN);
             fclose(source_fp);
@@ -895,12 +990,14 @@ int storage_delete(const char *table_name, const DeleteStatement *stmt,
     if (rename(temp_path, path) != 0) {
         fprintf(stderr, "Error: Failed to replace table '%s'.\n", table_name);
         remove(temp_path);
+        storage_free_field_list(matched_slot_keys, matched_slot_key_count);
         storage_free_table(&table);
         flock(fileno(source_fp), LOCK_UN);
         fclose(source_fp);
         return FAILURE;
     }
 
+    storage_free_field_list(matched_slot_keys, matched_slot_key_count);
     storage_free_table(&table);
     flock(fileno(source_fp), LOCK_UN);
     fclose(source_fp);

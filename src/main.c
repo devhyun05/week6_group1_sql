@@ -249,6 +249,7 @@ int main(int argc, char *argv[]) {
         status = main_run_repl_mode();
     }
 
+    executor_reset_runtime_state();
     tokenizer_cleanup_cache();
     return status == SUCCESS ? EXIT_SUCCESS : EXIT_FAILURE;
 }

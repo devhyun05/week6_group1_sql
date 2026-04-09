@@ -20,6 +20,7 @@ int storage_insert(const char *table_name, const InsertStatement *stmt);
 /*
  * 테이블 CSV 파일에서 조건에 맞는 행을 삭제한다.
  * WHERE가 없으면 헤더를 제외한 모든 데이터 행을 삭제한다.
+ * jungle_menu 테이블은 같은 slot_key를 공유하는 메뉴 묶음을 함께 삭제한다.
  * 성공 시 SUCCESS, 실패 시 FAILURE를 반환한다.
  */
 int storage_delete(const char *table_name, const DeleteStatement *stmt,

@@ -47,6 +47,24 @@ static void prepare_delete(DeleteStatement *stmt, const char *table_name,
     }
 }
 
+static void prepare_menu_insert(InsertStatement *stmt, const char *slot_key,
+                                const char *menu_date, const char *meal_type,
+                                const char *dish_order, const char *dish_name) {
+    memset(stmt, 0, sizeof(*stmt));
+    snprintf(stmt->table_name, sizeof(stmt->table_name), "%s", "jungle_menu");
+    stmt->column_count = 5;
+    snprintf(stmt->columns[0], sizeof(stmt->columns[0]), "slot_key");
+    snprintf(stmt->columns[1], sizeof(stmt->columns[1]), "menu_date");
+    snprintf(stmt->columns[2], sizeof(stmt->columns[2]), "meal_type");
+    snprintf(stmt->columns[3], sizeof(stmt->columns[3]), "dish_order");
+    snprintf(stmt->columns[4], sizeof(stmt->columns[4]), "dish_name");
+    snprintf(stmt->values[0], sizeof(stmt->values[0]), "%s", slot_key);
+    snprintf(stmt->values[1], sizeof(stmt->values[1]), "%s", menu_date);
+    snprintf(stmt->values[2], sizeof(stmt->values[2]), "%s", meal_type);
+    snprintf(stmt->values[3], sizeof(stmt->values[3]), "%s", dish_order);
+    snprintf(stmt->values[4], sizeof(stmt->values[4]), "%s", dish_name);
+}
+
 int main(void) {
     InsertStatement stmt;
     DeleteStatement delete_stmt;
@@ -145,6 +163,64 @@ int main(void) {
     rows = storage_select("storage_users", &row_count, &col_count);
     if (assert_true(rows != NULL, "storage_select should read empty table") != SUCCESS ||
         assert_true(row_count == 0, "no rows should remain after full delete") != SUCCESS) {
+        storage_free_rows(rows, row_count, col_count);
+        return EXIT_FAILURE;
+    }
+    storage_free_rows(rows, row_count, col_count);
+
+    remove("data/jungle_menu.csv");
+
+    prepare_menu_insert(&stmt, "20260406_lunch", "20260406", "lunch", "1", "슈프카레");
+    if (assert_true(storage_insert("jungle_menu", &stmt) == SUCCESS,
+                    "jungle_menu first insert should succeed") != SUCCESS) {
+        return EXIT_FAILURE;
+    }
+    prepare_menu_insert(&stmt, "20260406_lunch", "20260406", "lunch", "2", "치즈밥");
+    if (assert_true(storage_insert("jungle_menu", &stmt) == SUCCESS,
+                    "jungle_menu second insert should succeed") != SUCCESS) {
+        return EXIT_FAILURE;
+    }
+    prepare_menu_insert(&stmt, "20260406_lunch", "20260406", "lunch", "3", "연두부샐러드");
+    if (assert_true(storage_insert("jungle_menu", &stmt) == SUCCESS,
+                    "jungle_menu third insert should succeed") != SUCCESS) {
+        return EXIT_FAILURE;
+    }
+    prepare_menu_insert(&stmt, "20260406_lunch", "20260406", "lunch", "4", "오이지무침");
+    if (assert_true(storage_insert("jungle_menu", &stmt) == SUCCESS,
+                    "jungle_menu fourth insert should succeed") != SUCCESS) {
+        return EXIT_FAILURE;
+    }
+    prepare_menu_insert(&stmt, "20260406_lunch", "20260406", "lunch", "5", "깍두기");
+    if (assert_true(storage_insert("jungle_menu", &stmt) == SUCCESS,
+                    "jungle_menu slot should include kkakdugi") != SUCCESS) {
+        return EXIT_FAILURE;
+    }
+    prepare_menu_insert(&stmt, "20260409_dinner", "20260409", "dinner", "1", "나가사끼짬뽕");
+    if (assert_true(storage_insert("jungle_menu", &stmt) == SUCCESS,
+                    "jungle_menu dinner insert should succeed") != SUCCESS) {
+        return EXIT_FAILURE;
+    }
+    prepare_menu_insert(&stmt, "20260409_dinner", "20260409", "dinner", "2", "잡곡밥");
+    if (assert_true(storage_insert("jungle_menu", &stmt) == SUCCESS,
+                    "jungle_menu dinner second insert should succeed") != SUCCESS) {
+        return EXIT_FAILURE;
+    }
+
+    prepare_delete(&delete_stmt, "jungle_menu", 1, "dish_name", "=", "깍두기");
+    if (assert_true(storage_delete("jungle_menu", &delete_stmt, &deleted_count) == SUCCESS,
+                    "jungle_menu delete should remove whole slot") != SUCCESS ||
+        assert_true(deleted_count == 5,
+                    "deleting kkakdugi should remove the full lunch slot") != SUCCESS) {
+        return EXIT_FAILURE;
+    }
+
+    rows = storage_select("jungle_menu", &row_count, &col_count);
+    if (assert_true(rows != NULL, "jungle_menu should still be readable after grouped delete") != SUCCESS ||
+        assert_true(row_count == 2, "only dinner rows should remain after grouped delete") != SUCCESS ||
+        assert_true(strcmp(rows[0][1], "20260409_dinner") == 0,
+                    "remaining rows should belong to dinner slot") != SUCCESS ||
+        assert_true(strcmp(rows[1][1], "20260409_dinner") == 0,
+                    "all remaining rows should belong to dinner slot") != SUCCESS) {
         storage_free_rows(rows, row_count, col_count);
         return EXIT_FAILURE;
     }

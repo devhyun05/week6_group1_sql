@@ -50,6 +50,7 @@ run_sql_test "WHERE equals" "tests/test_cases/select_where.sql" "Bob"
 run_sql_test "Edge cases" "tests/test_cases/edge_cases.sql" "Lee, Jr."
 run_sql_test "Duplicate primary key" "tests/test_cases/duplicate_primary_key.sql" "Duplicate primary key value"
 run_sql_test "Delete WHERE" "tests/test_cases/delete_where.sql" "1 row deleted from users."
+run_sql_test "Delete grouped slot" "tests/test_cases/delete_grouped_slot.sql" "5 rows deleted from jungle_menu."
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
